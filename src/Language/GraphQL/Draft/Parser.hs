@@ -1,6 +1,11 @@
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE MultiWayIf        #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE MultiWayIf          #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE KindSignatures      #-}
+{-# LANGUAGE DataKinds           #-}
 
 -- | Description: Parse text into GraphQL ASTs
 module Language.GraphQL.Draft.Parser
@@ -11,6 +16,8 @@ module Language.GraphQL.Draft.Parser
   , parseSchemaDoc
 
   , value
+  , valueVariable
+  , valueConstant
   , parseValueConst
   , nameParser
 
@@ -35,6 +42,7 @@ import           Data.Char                     (isAsciiLower, isAsciiUpper,
                                                 isDigit)
 import           Data.Scientific               (Scientific)
 import           Data.Text                     (find)
+import           Data.Singletons.TH
 
 import qualified Language.GraphQL.Draft.Syntax as AST
 
@@ -100,7 +108,7 @@ variableDefinition =
                          <*> optional defaultValue
 
 defaultValue :: Parser AST.DefaultValue
-defaultValue = tok "=" *> valueConst
+defaultValue = tok "=" *> value
 
 variable :: Parser AST.Variable
 variable = AST.Variable <$ tok "$" <*> nameParser
@@ -132,10 +140,10 @@ field = do
    <*> optempty directives
    <*> optempty selectionSet
 
-arguments :: Parser [AST.Argument]
+arguments :: SingI vv => Parser [AST.Argument vv]
 arguments = parens $ many1 argument
 
-argument :: Parser AST.Argument
+argument :: SingI vv => Parser (AST.Argument vv)
 argument = AST.Argument <$> nameParser <* tok ":" <*> value
 
 -- * Fragments
@@ -170,20 +178,7 @@ typeCondition = namedType
 
 -- * Values
 parseValueConst :: Text -> Either Text AST.ValueConst
-parseValueConst = runParser valueConst
-
-valueConst :: Parser AST.ValueConst
-valueConst = tok (
-      (fmap (either AST.VCFloat AST.VCInt) number <?> "number")
-  <|> AST.VCNull     <$  literal "null"
-  <|> AST.VCBoolean  <$> (booleanValue <?> "booleanValue")
-  <|> AST.VCString   <$> (stringValue <?> "stringValue")
-  -- `true` and `false` have been tried before
-  <|> AST.VCEnum     <$> (fmap AST.EnumValue nameParser <?> "name")
-  <|> AST.VCList     <$> (listValueC <?> "listValue")
-  <|> AST.VCObject   <$> (objectValueC <?> "objectValue")
-  <?> "value (const) error!"
-  )
+parseValueConst = runParser value
 
 number :: Parser (Either Scientific Integer)
 number = do
@@ -194,9 +189,9 @@ number = do
 
 -- This will try to pick the first type it can runParser. If you are working with
 -- explicit types use the `typedValue` parser.
-value :: Parser AST.Value
+value :: forall vv . SingI vv => Parser (AST.Value vv)
 value = tok (
-      AST.VVariable <$> (variable <?> "variable")
+      go sing
   <|> (fmap (either AST.VFloat AST.VInt) number <?> "number")
   <|> AST.VNull     <$  literal "null"
   <|> AST.VBoolean  <$> (booleanValue <?> "booleanValue")
@@ -207,6 +202,17 @@ value = tok (
   <|> AST.VObject   <$> (objectValue <?> "objectValue")
   <?> "value error!"
   )
+  where
+    -- Variables are only allowed in Values of non-constant type, so we only
+    -- attempt to parse for variable type.
+    go :: Sing vv -> Parser (AST.Value vv)
+    go AST.SValueConstant = empty
+    go AST.SValueVariable = AST.VVariable <$> (variable <?> "variable")
+
+valueVariable :: Parser (AST.ValueVar)
+valueVariable = value
+valueConstant :: Parser (AST.ValueConst)
+valueConstant = value
 
 booleanValue :: Parser Bool
 booleanValue
@@ -243,31 +249,25 @@ stringValue = do
 listValueG :: Parser a -> Parser (AST.ListValueG a)
 listValueG val = AST.ListValueG <$> brackets (many val)
 
-listValue :: Parser AST.ListValue
+listValue :: SingI vv => Parser (AST.ListValue vv)
 listValue = listValueG value
-
-listValueC :: Parser AST.ListValueC
-listValueC = listValueG valueConst
 
 -- Notice it can be empty
 objectValueG :: Parser a -> Parser (AST.ObjectValueG a)
 objectValueG p = AST.ObjectValueG <$> braces (many (objectFieldG p <?> "objectField"))
 
-objectValue :: Parser AST.ObjectValue
+objectValue :: SingI vv => Parser (AST.ObjectValue vv)
 objectValue = objectValueG value
-
-objectValueC :: Parser AST.ObjectValueC
-objectValueC = objectValueG valueConst
 
 objectFieldG :: Parser a -> Parser (AST.ObjectFieldG a)
 objectFieldG p = AST.ObjectFieldG <$> nameParser <* tok ":" <*> p
 
 -- * Directives
 
-directives :: Parser [AST.Directive]
+directives :: SingI vv => Parser [AST.Directive vv]
 directives = many1 directive
 
-directive :: Parser AST.Directive
+directive :: SingI vv => Parser (AST.Directive vv)
 directive = AST.Directive
   <$  tok "@"
   <*> nameParser

@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE GADTs                 #-}
 
 module Language.GraphQL.Draft.Printer where
 
@@ -112,18 +113,18 @@ fragmentDefinition (FragmentDefinition name tc dirs sels) =
   <> optempty directives dirs
   <> selectionSetP sels
 
-directives :: (Printer a) => [Directive] -> a
+directives :: (Printer a) => [Directive vv] -> a
 directives = mconcat . intersperse (charP ' ') . map directive
 
-directive :: (Printer a) => Directive -> a
+directive :: (Printer a) => Directive vv -> a
 directive (Directive name args) =
   charP '@' <> nameP name <> optempty arguments args
 
-arguments :: (Printer a) => [Argument] -> a
+arguments :: (Printer a) => [Argument vv] -> a
 arguments xs = charP '(' <> args <> charP ')'
   where args = mconcat $ intersperse (charP ',') $ map argument xs
 
-argument :: (Printer a) => Argument -> a
+argument :: (Printer a) => Argument vv -> a
 argument (Argument name val) = nameP name <> ": " <> value val
 
 variableDefinitions :: (Printer a) => [VariableDefinition] -> a
@@ -138,7 +139,7 @@ variableDefinition (VariableDefinition var ty defVal) =
   variable var <> ": " <> graphQLType ty <> maybe mempty defaultValue defVal
 
 defaultValue :: (Printer a) => DefaultValue -> a
-defaultValue v = " =" <> charP ' ' <> valueC v
+defaultValue v = " =" <> charP ' ' <> value v
 
 -- | Type Reference
 
@@ -154,7 +155,7 @@ nonNull n = bool (charP '!') mempty $ unNullability n
 
 -- | Primitives
 
-value :: (Printer a) => Value -> a
+value :: (Printer a) => Value vv -> a
 value = \case
   VVariable v -> variable v
   VInt i      -> intP i
@@ -173,44 +174,19 @@ stringValue (StringValue s) =
 variable :: (Printer a) => Variable -> a
 variable (Variable v) = charP '$' <> nameP v
 
-listValue :: (Printer a) => ListValue -> a
+listValue :: (Printer a) => ListValue vv -> a
 listValue (ListValueG xs) = mconcat [ charP '[' , li , charP ']' ]
   where
     li = mconcat $ intersperse (charP ',') $ map value xs
 
-objectValue :: (Printer a) => ObjectValue -> a
+objectValue :: (Printer a) => ObjectValue vv -> a
 objectValue (ObjectValueG o) = mconcat [ charP '{', vals, charP '}' ]
   where
     vals = mconcat $ intersperse (charP ',') $ map objectField o
 
-objectField :: (Printer a) => ObjectField -> a
+objectField :: (Printer a) => ObjectField vv -> a
 objectField (ObjectFieldG name val) =
   mconcat [ nameP name, charP ':', value val ]
-
-valueC :: (Printer a) => ValueConst -> a
-valueC = \case
-  VCInt i      -> intP i
-  VCFloat sc   -> floatP sc
-  VCString s   -> stringValue s
-  VCBoolean b  -> fromBool b
-  VCNull       -> "null"
-  VCList xs    -> listValueC xs
-  VCObject o   -> objectValueC o
-  VCEnum ev    -> nameP $ unEnumValue ev
-
-listValueC :: (Printer a) => ListValueC -> a
-listValueC (ListValueG xs) = mconcat [ charP '[' , li , charP ']' ]
-  where
-    li = mconcat $ intersperse (charP ',') $ map valueC xs
-
-objectValueC :: (Printer a) => ObjectValueC -> a
-objectValueC (ObjectValueG o) = mconcat [ charP '{', vals, charP '}' ]
-  where
-    vals = mconcat $ intersperse (charP ',') $ map objectFieldC o
-
-objectFieldC :: (Printer a) => ObjectFieldC -> a
-objectFieldC (ObjectFieldG name val) =
-  nameP name <> ": " <> valueC val
 
 fromBool :: (Printer a) => Bool -> a
 fromBool True  = "true"

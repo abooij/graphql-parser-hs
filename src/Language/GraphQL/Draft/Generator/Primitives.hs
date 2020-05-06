@@ -1,3 +1,6 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Language.GraphQL.Draft.Generator.Primitives where
 
 import           Hedgehog
@@ -7,6 +10,7 @@ import qualified Hedgehog.Gen                  as Gen
 import qualified Hedgehog.Range                as Range
 
 import           Data.Scientific (fromFloatDigits)
+import           Data.Singletons
 
 import           Language.GraphQL.Draft.Syntax
 
@@ -32,21 +36,27 @@ genDescription = Description <$> genText
 
 -- | *Values*
 
-genValue :: Gen Value
+genValue :: forall vv . SingI vv => Gen (Value vv)
 genValue =
   -- TODO: use maxbound of int32/double or something?
-  Gen.recursive
-  Gen.choice [ pure VNull
-             , VInt <$> fromIntegral <$> Gen.int32 (Range.linear 1 99999)
-             , VEnum <$> genEnumValue
-             , VFloat <$> fromFloatDigits <$> Gen.double (Range.linearFrac 1.1 999999.99999)
-             , VString <$> genStringValue
-             , VBoolean <$> Gen.bool
-             , VVariable <$> genVariable
-             ]
-             [ Gen.subtermM (VList <$> genListValue) pure
-             , Gen.subtermM (VObject <$> genObjectValue) pure
-             ]
+  Gen.recursive Gen.choice (go sing) subtermList
+  where
+    go :: Sing vv -> [GenT Identity (Value vv)]
+    go SValueVariable = genList ++ [VVariable <$> genVariable]
+    go SValueConstant = genList
+    genList :: [GenT Identity (Value vv)]
+    genList =
+      [ pure VNull
+      , VInt <$> fromIntegral <$> Gen.int32 (Range.linear 1 99999)
+      , VEnum <$> genEnumValue
+      , VFloat <$> fromFloatDigits <$> Gen.double (Range.linearFrac 1.1 999999.99999)
+      , VString <$> genStringValue
+      , VBoolean <$> Gen.bool
+      ]
+    subtermList =
+      [ Gen.subtermM (VList <$> genListValue) pure
+      , Gen.subtermM (VObject <$> genObjectValue) pure
+      ]
 
 genStringValue :: Gen StringValue
 genStringValue = StringValue . unName <$> genName
@@ -57,38 +67,14 @@ genVariable = Variable <$> genName
 genEnumValue :: Gen EnumValue
 genEnumValue = EnumValue <$> genName
 
-genListValue :: Gen ListValue
+genListValue :: SingI vv => Gen (ListValue vv)
 genListValue = ListValueG <$> Gen.list (Range.linear 1 11) genValue
 
-genObjectValue :: Gen ObjectValue
+genObjectValue :: SingI vv => Gen (ObjectValue vv)
 genObjectValue = ObjectValueG <$> Gen.list (Range.linear 1 11) genObjectField
 
-genObjectField :: Gen ObjectField
+genObjectField :: SingI vv => Gen (ObjectField vv)
 genObjectField = ObjectFieldG <$> genName <*> genValue
 
 genDefaultValue :: Gen DefaultValue
-genDefaultValue = genValueConst
-
-genValueConst :: Gen ValueConst
-genValueConst =
-  -- TODO: use maxbound of int32/double or something?
-  Gen.recursive
-  Gen.choice [ pure VCNull
-             , VCInt <$> fromIntegral <$> Gen.int32 (Range.linear 1 9)
-             , VCEnum <$> genEnumValue
-             , VCFloat <$> fromFloatDigits <$> Gen.double (Range.linearFrac 1.1 999999.99999)
-             , VCString <$> genStringValue
-             , VCBoolean <$> Gen.bool
-             ]
-             [ Gen.subtermM (VCList <$> genListValueC) pure
-             , Gen.subtermM (VCObject <$> genObjectValueC) pure
-             ]
-
-genListValueC :: Gen ListValueC
-genListValueC = ListValueG <$> Gen.list (Range.linear 1 11) genValueConst
-
-genObjectValueC :: Gen ObjectValueC
-genObjectValueC = ObjectValueG <$> Gen.list (Range.linear 1 11) genObjectFieldC
-
-genObjectFieldC :: Gen ObjectFieldC
-genObjectFieldC = ObjectFieldG <$> genName <*> genValueConst
+genDefaultValue = genValue

@@ -42,6 +42,7 @@ library
     , protolude
     , regex-tdfa >=1.2
     , scientific
+    , singletons
     , template-haskell
     , text
     , text-builder
@@ -88,6 +89,7 @@ test-suite graphql-parser-test
     , protolude
     , regex-tdfa >=1.2
     , scientific
+    , singletons
     , template-haskell
     , text
     , text-builder
@@ -119,6 +121,7 @@ benchmark graphql-parser-bench
     , protolude
     , regex-tdfa >=1.2
     , scientific
+    , singletons
     , template-haskell
     , text
     , text-builder

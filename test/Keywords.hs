@@ -24,7 +24,7 @@ primitiveTests =
 propNullNameValue :: Property
 propNullNameValue = property $ either (fail . Protolude.show) (ast ===) astRoundTrip
   where
-    astRoundTrip = (runParser value) printed
+    astRoundTrip = (runParser valueVariable) printed
     printed      = PP.TB.render P.value ast
     ast          = VList (ListValueG { unListValue = [
                     VEnum (EnumValue{unEnumValue = Name{unName = "nullColumn"}})]})
@@ -32,7 +32,7 @@ propNullNameValue = property $ either (fail . Protolude.show) (ast ===) astRound
 propBoolNameValue :: Property
 propBoolNameValue = property $ either (fail . Protolude.show) (ast ===) astRoundTrip
   where
-    astRoundTrip = (runParser value) printed
+    astRoundTrip = (runParser valueVariable) printed
     printed      = PP.TB.render P.value ast
     ast          = VList (ListValueG { unListValue = [
                     VEnum (EnumValue{unEnumValue = Name{unName = "trueColumn"}})]})

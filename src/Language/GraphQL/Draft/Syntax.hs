@@ -6,6 +6,12 @@
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE KindSignatures             #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE ConstraintKinds            #-}
 
 -- | Description: The GraphQL AST
 module Language.GraphQL.Draft.Syntax
@@ -34,7 +40,14 @@ module Language.GraphQL.Draft.Syntax
   , InlineFragment(..)
   , FragmentDefinition(..)
   , TypeCondition
-  , ValueConst(..)
+  , ValueVariability(..)
+  , SValueVariability
+  , ValueConstantSym0
+  , ValueVariableSym0
+
+  , Sing(..)
+  , ValueConst
+  , ValueVar
   , Value(..)
   , StringValue(..)
   , ListValueG(..)
@@ -87,6 +100,7 @@ import           Instances.TH.Lift          ()
 import           Language.Haskell.TH.Syntax (Lift(..), Lit(RationalL))
 import           Language.Haskell.TH.Lib    (litE)
 import           Protolude                  hiding (lift)
+import           Data.Singletons.TH
 
 import qualified Data.Aeson                 as J
 import qualified Data.Aeson.Types           as J
@@ -172,7 +186,7 @@ instance Hashable TypeSystemDefinition
 
 data SchemaDefinition
   = SchemaDefinition
-  { _sdDirectives                   :: !(Maybe [Directive])
+  { _sdDirectives                   :: !(Maybe [Directive 'ValueConstant])
   , _sdRootOperationTypeDefinitions :: ![RootOperationTypeDefinition]
   } deriving (Ord, Show, Eq, Lift, Generic)
 
@@ -210,7 +224,7 @@ data TypedOperationDefinition
   { _todType                :: !OperationType
   , _todName                :: !(Maybe Name)
   , _todVariableDefinitions :: ![VariableDefinition]
-  , _todDirectives          :: ![Directive]
+  , _todDirectives          :: ![Directive 'ValueVariable]
   , _todSelectionSet        :: !SelectionSet
   } deriving (Ord, Show, Eq, Lift, Generic)
 
@@ -244,8 +258,8 @@ data Field
   = Field
   { _fAlias        :: !(Maybe Alias)
   , _fName         :: !Name
-  , _fArguments    :: ![Argument]
-  , _fDirectives   :: ![Directive]
+  , _fArguments    :: ![Argument 'ValueVariable]
+  , _fDirectives   :: ![Directive 'ValueVariable]
   , _fSelectionSet :: !SelectionSet
   } deriving (Ord, Show, Eq, Lift, Generic)
 
@@ -255,20 +269,20 @@ newtype Alias
   = Alias { unAlias :: Name }
   deriving (Ord, Show, Eq, Hashable, Lift, J.ToJSON, J.FromJSON)
 
-data Argument
+data Argument vv
   = Argument
   { _aName  :: !Name
-  , _aValue :: !Value
+  , _aValue :: !(Value vv)
   } deriving (Ord, Show, Eq, Lift, Generic)
 
-instance Hashable Argument
+instance Hashable (Argument vv)
 
 -- * Fragments
 
 data FragmentSpread
   = FragmentSpread
   { _fsName       :: !Name
-  , _fsDirectives :: ![Directive]
+  , _fsDirectives :: ![Directive 'ValueVariable]
   } deriving (Ord, Show, Eq, Lift, Generic)
 
 instance Hashable FragmentSpread
@@ -276,7 +290,7 @@ instance Hashable FragmentSpread
 data InlineFragment
   = InlineFragment
   { _ifTypeCondition :: !(Maybe TypeCondition)
-  , _ifDirectives    :: ![Directive]
+  , _ifDirectives    :: ![Directive 'ValueVariable]
   , _ifSelectionSet  :: !SelectionSet
   } deriving (Ord, Show, Eq, Lift, Generic)
 
@@ -286,7 +300,7 @@ data FragmentDefinition
   = FragmentDefinition
   { _fdName          :: !Name
   , _fdTypeCondition :: !TypeCondition
-  , _fdDirectives    :: ![Directive]
+  , _fdDirectives    :: ![Directive 'ValueVariable]
   , _fdSelectionSet  :: !SelectionSet
   } deriving (Ord, Show, Eq, Lift, Generic)
 
@@ -318,42 +332,38 @@ type TypeCondition = NamedType
 --   | VObject !ObjectValue
 --   deriving (Ord, Show, Eq, Lift)
 
-data ValueConst
-  = VCInt !Integer
-  | VCFloat !S.Scientific
-  | VCString !StringValue
-  | VCBoolean !Bool
-  | VCNull
-  | VCEnum !EnumValue
-  | VCList !ListValueC
-  | VCObject !ObjectValueC
+data ValueVariability = ValueConstant | ValueVariable
   deriving (Ord, Show, Eq, Generic)
+-- TODO add strictness
+data Value (vv :: ValueVariability) where
+  VVariable :: Variable -> Value 'ValueVariable
+  VInt :: Integer -> Value vv
+  VFloat :: S.Scientific -> Value vv
+  VString :: StringValue -> Value vv
+  VBoolean :: Bool -> Value vv
+  VNull :: Value vv
+  VEnum :: EnumValue -> Value vv
+  VList :: ListValue vv -> Value vv
+  VObject :: ObjectValue vv -> Value vv
+deriving instance Ord (Value vv)
+deriving instance Show (Value vv)
+deriving instance Eq (Value vv)
+-- Can't easily get a Generic instance for GADTs, so just write this one out.
+instance Hashable (Value vv) where
+  hashWithSalt s (VVariable v) = s `hashWithSalt` v
+  hashWithSalt s (VInt v) = s `hashWithSalt` v
+  hashWithSalt s (VFloat v) = s `hashWithSalt` v
+  hashWithSalt s (VString v) = s `hashWithSalt` v
+  hashWithSalt s (VBoolean v) = s `hashWithSalt` v
+  hashWithSalt s (VNull) = s
+  hashWithSalt s (VEnum v) = s `hashWithSalt` v
+  hashWithSalt s (VList v) = s `hashWithSalt` v
+  hashWithSalt s (VObject v) = s `hashWithSalt` v
 
-instance Lift ValueConst where
-  lift (VCInt i) = [e|VCInt $(lift i)|]
-  lift (VCFloat sc) = [e|VCFloat $(litE (RationalL (toRational sc)))|]
-  lift (VCString s) = [e|VCString $(lift s)|]
-  lift (VCBoolean b) = [e|VCBoolean $(lift b)|]
-  lift (VCNull) = [e|VCNull|]
-  lift (VCEnum ev) = [e|VCEnum $(lift ev)|]
-  lift (VCList xs) = [e|VCList $(lift xs)|]
-  lift (VCObject o) = [e|VCObject $(lift o)|]
+type ValueConst = Value 'ValueConstant
+type ValueVar = Value 'ValueVariable
 
-instance Hashable ValueConst
-
-data Value
-  = VVariable !Variable
-  | VInt !Integer
-  | VFloat !S.Scientific
-  | VString !StringValue
-  | VBoolean !Bool
-  | VNull
-  | VEnum !EnumValue
-  | VList !ListValue
-  | VObject !ObjectValue
-  deriving (Ord, Show, Eq, Generic)
-
-instance Lift Value where
+instance Lift (Value vv) where
   lift (VVariable v) = [e|VVariable $(lift v)|]
   lift (VInt i) = [e|VInt $(lift i)|]
   lift (VFloat sc) = [e|VFloat $(litE (RationalL (toRational sc)))|]
@@ -364,8 +374,6 @@ instance Lift Value where
   lift (VList xs) = [e|VList $(lift xs)|]
   lift (VObject o) = [e|VObject $(lift o)|]
 
-instance Hashable Value
-
 newtype StringValue
   = StringValue { unStringValue :: Text }
   deriving (Ord, Show, Eq, Lift, Hashable)
@@ -374,7 +382,7 @@ newtype ListValueG a
   = ListValueG {unListValue :: [a]}
   deriving (Ord, Show, Eq, Lift, Hashable)
 
-type ListValue = ListValueG Value
+type ListValue vv = ListValueG (Value vv)
 
 type ListValueC = ListValueG ValueConst
 
@@ -382,7 +390,7 @@ newtype ObjectValueG a
   = ObjectValueG {unObjectValue :: [ObjectFieldG a]}
   deriving (Ord, Show, Eq, Lift, Hashable)
 
-type ObjectValue = ObjectValueG Value
+type ObjectValue vv = ObjectValueG (Value vv)
 
 type ObjectValueC = ObjectValueG ValueConst
 
@@ -394,20 +402,20 @@ data ObjectFieldG a
 
 instance (Hashable a) => Hashable (ObjectFieldG a)
 
-type ObjectField = ObjectFieldG Value
+type ObjectField vv = ObjectFieldG (Value vv)
 type ObjectFieldC = ObjectFieldG ValueConst
 
 type DefaultValue = ValueConst
 
 -- * Directives
 
-data Directive
+data Directive vv
   = Directive
   { _dName      :: !Name
-  , _dArguments :: ![Argument]
+  , _dArguments :: ![Argument vv]
   } deriving (Ord, Show, Eq, Lift, Generic)
 
-instance Hashable Directive
+instance Hashable (Directive vv)
 
 -- * Type Reference
 
@@ -510,7 +518,7 @@ data ObjectTypeDefinition
   { _otdDescription          :: !(Maybe Description)
   , _otdName                 :: !Name
   , _otdImplementsInterfaces :: ![NamedType]
-  , _otdDirectives           :: ![Directive]
+  , _otdDirectives           :: ![Directive 'ValueConstant]
   , _otdFieldsDefinition     :: ![FieldDefinition]
   }
   deriving (Ord, Show, Eq, Lift, Generic)
@@ -523,7 +531,7 @@ data FieldDefinition
   , _fldName                :: !Name
   , _fldArgumentsDefinition :: !ArgumentsDefinition
   , _fldType                :: !GType
-  , _fldDirectives          :: ![Directive]
+  , _fldDirectives          :: ![Directive 'ValueConstant]
   }
   deriving (Ord, Show, Eq, Lift, Generic)
 
@@ -546,7 +554,8 @@ data InterfaceTypeDefinition
   = InterfaceTypeDefinition
   { _itdDescription      :: !(Maybe Description)
   , _itdName             :: !Name
-  , _itdDirectives       :: ![Directive]
+  -- TODO ImplementsInterfaces (in Draft version of the GraphQL spec)
+  , _itdDirectives       :: ![Directive 'ValueConstant]
   , _itdFieldsDefinition :: ![FieldDefinition]
   }
   deriving (Ord, Show, Eq, Lift, Generic)
@@ -557,7 +566,7 @@ data UnionTypeDefinition
   = UnionTypeDefinition
   { _utdDescription :: !(Maybe Description)
   , _utdName        :: !Name
-  , _utdDirectives  :: ![Directive]
+  , _utdDirectives  :: ![Directive 'ValueConstant]
   , _utdMemberTypes :: ![NamedType]
   }
   deriving (Ord, Show, Eq, Lift, Generic)
@@ -568,7 +577,7 @@ data ScalarTypeDefinition
   = ScalarTypeDefinition
   { _stdDescription :: !(Maybe Description)
   , _stdName        :: !Name
-  , _stdDirectives  :: ![Directive]
+  , _stdDirectives  :: ![Directive 'ValueConstant]
   }
   deriving (Ord, Show, Eq, Lift, Generic)
 
@@ -578,7 +587,7 @@ data EnumTypeDefinition
   = EnumTypeDefinition
   { _etdDescription      :: !(Maybe Description)
   , _etdName             :: !Name
-  , _etdDirectives       :: ![Directive]
+  , _etdDirectives       :: ![Directive 'ValueConstant]
   , _etdValueDefinitions :: ![EnumValueDefinition]
   }
   deriving (Ord, Show, Eq, Lift, Generic)
@@ -589,7 +598,7 @@ data EnumValueDefinition
   = EnumValueDefinition
   { _evdDescription :: !(Maybe Description)
   , _evdName        :: !EnumValue
-  , _evdDirectives  :: ![Directive]
+  , _evdDirectives  :: ![Directive 'ValueConstant]
   }
   deriving (Ord, Show, Eq, Lift, Generic)
 
@@ -603,7 +612,7 @@ data InputObjectTypeDefinition
   = InputObjectTypeDefinition
   { _iotdDescription      :: !(Maybe Description)
   , _iotdName             :: !Name
-  , _iotdDirectives       :: ![Directive]
+  , _iotdDirectives       :: ![Directive 'ValueConstant]
   , _iotdValueDefinitions :: ![InputValueDefinition]
   }
   deriving (Ord, Show, Eq, Lift, Generic)
@@ -654,3 +663,4 @@ data TypeSystemDirectiveLocation
   deriving (Ord, Show, Eq, Lift, Generic)
 
 instance Hashable TypeSystemDirectiveLocation
+$(genSingletons [''ValueVariability])

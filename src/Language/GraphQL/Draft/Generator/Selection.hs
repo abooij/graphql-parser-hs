@@ -8,7 +8,7 @@ import qualified Hedgehog.Range                              as Range
 
 import           Language.GraphQL.Draft.Generator.Primitives
 import           Language.GraphQL.Draft.Syntax
-
+import           Data.Singletons
 
 genSelectionSet :: Gen SelectionSet
 genSelectionSet = Gen.list (Range.linear 1 11) genSelection
@@ -44,15 +44,15 @@ genField = Field
 genAlias :: Gen Alias
 genAlias = Alias <$> genName
 
-genDirective :: Gen Directive
+genDirective :: SingI vv => Gen (Directive vv)
 genDirective = Directive
                <$> genName
                <*> Gen.list (Range.linear 1 11) genArgument
 
-genDirectives :: Gen [Directive]
+genDirectives :: SingI vv => Gen [Directive vv]
 genDirectives = Gen.list (Range.linear 1 11) genDirective
 
-genArgument :: Gen Argument
+genArgument :: SingI vv => Gen (Argument vv)
 genArgument = Argument <$> genName <*> genValue
 
 genTypeCondition :: Gen TypeCondition
