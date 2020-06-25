@@ -1,5 +1,6 @@
 module Language.GraphQL.Draft.Syntax where
 
-data Name
+type role Name' phantom
+data Name' t
 type role ExecutableDocument nominal
 data ExecutableDocument var

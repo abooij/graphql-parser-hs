@@ -4,4 +4,4 @@ import           Data.Text                     (Text)
 
 import {-# SOURCE #-} Language.GraphQL.Draft.Syntax
 
-renderExecutableDoc :: ExecutableDocument Name -> Text
+renderExecutableDoc :: ExecutableDocument (Name' ()) -> Text

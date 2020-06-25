@@ -5,7 +5,8 @@
 -- | Description: The GraphQL AST
 module Language.GraphQL.Draft.Syntax (
   -- * Basics
-    Name
+    Name'
+  , Name
   , unName
   , mkName
   , unsafeMkName
@@ -96,31 +97,36 @@ import           Language.Haskell.TH.Syntax          (Lift, Q)
 import {-# SOURCE #-} Language.GraphQL.Draft.Parser       (parseExecutableDoc)
 import {-# SOURCE #-} Language.GraphQL.Draft.Printer.Text (renderExecutableDoc)
 
-newtype Name = Name { unName :: Text }
+newtype Name' t = Name' { unName :: Text }
   deriving (Eq, Ord, Show, Hashable, Lift, Semigroup, J.ToJSONKey, J.ToJSON)
 
+type Name = Name' ()
+
 -- | Ref: http://facebook.github.io/graphql/June2018/#sec-Names
-mkName :: Text -> Maybe Name
+mkName :: Text -> Maybe (Name' t)
 mkName text
-  | TDFA.match compiledRegex $ T.unpack text = Just (Name text)
+  | TDFA.match compiledRegex $ T.unpack text = Just (Name' text)
   | otherwise                                = Nothing
   where
     compiledRegex = TDFA.makeRegex ("^[_a-zA-Z][_a-zA-Z0-9]*$" :: BL.ByteString) :: TDFA.Regex
 
-unsafeMkName :: Text -> Name
-unsafeMkName = Name
+unsafeMkName :: Text -> (Name' t)
+unsafeMkName = Name'
 
-parseName :: MonadFail m => Text -> m Name
+unsafeCoerceName :: Name' t -> Name' t'
+unsafeCoerceName (Name' n) = Name' n
+
+parseName :: MonadFail m => Text -> m (Name' t)
 parseName text = maybe (fail errorMessage) pure $ mkName text
   where errorMessage = T.unpack text <> " is not valid GraphQL name"
 
-litName :: Text -> Q (TH.TExp Name)
+litName :: Text -> Q (TH.TExp (Name' t))
 litName = parseName >=> \name -> [|| name ||]
 
-instance J.FromJSON Name where
+instance J.FromJSON (Name' t) where
   parseJSON = J.withText "Name" parseName
 
-instance J.FromJSONKey Name where
+instance J.FromJSONKey (Name' t) where
   fromJSONKey = J.FromJSONKeyTextParser parseName
 
 -- * Documents
@@ -529,8 +535,8 @@ newtype Description
 
 data ObjectTypeDefinition = ObjectTypeDefinition
   { _otdDescription          :: (Maybe Description)
-  , _otdName                 :: Name
-  , _otdImplementsInterfaces :: [Name]
+  , _otdName                 :: Name' ObjectTypeDefinition
+  , _otdImplementsInterfaces :: [Name' InterfaceTypeDefinition]
   , _otdDirectives           :: [Directive Void]
   , _otdFieldsDefinition     :: [FieldDefinition]
   } deriving (Ord, Show, Eq, Lift, Generic)
@@ -538,7 +544,7 @@ instance Hashable ObjectTypeDefinition
 
 data FieldDefinition = FieldDefinition
   { _fldDescription         :: Maybe Description
-  , _fldName                :: Name
+  , _fldName                :: Name' FieldDefinition
   , _fldArgumentsDefinition :: ArgumentsDefinition
   , _fldType                :: GType
   , _fldDirectives          :: [Directive Void]
@@ -557,7 +563,7 @@ instance Hashable InputValueDefinition
 
 data InterfaceTypeDefinition = InterfaceTypeDefinition
   { _itdDescription      :: Maybe Description
-  , _itdName             :: Name
+  , _itdName             :: Name' InterfaceTypeDefinition
   , _itdDirectives       :: [Directive Void]
   , _itdFieldsDefinition :: [FieldDefinition]
   } deriving (Ord, Show, Eq, Lift, Generic)
@@ -565,22 +571,22 @@ instance Hashable InterfaceTypeDefinition
 
 data UnionTypeDefinition = UnionTypeDefinition
   { _utdDescription :: Maybe Description
-  , _utdName        :: Name
+  , _utdName        :: Name' UnionTypeDefinition
   , _utdDirectives  :: [Directive Void]
-  , _utdMemberTypes :: [Name]
+  , _utdMemberTypes :: [Name' ObjectTypeDefinition]
   } deriving (Ord, Show, Eq, Lift, Generic)
 instance Hashable UnionTypeDefinition
 
 data ScalarTypeDefinition = ScalarTypeDefinition
   { _stdDescription :: Maybe Description
-  , _stdName        :: Name
+  , _stdName        :: Name' ScalarTypeDefinition
   , _stdDirectives  :: [Directive Void]
   } deriving (Ord, Show, Eq, Lift, Generic)
 instance Hashable ScalarTypeDefinition
 
 data EnumTypeDefinition = EnumTypeDefinition
   { _etdDescription      :: Maybe Description
-  , _etdName             :: Name
+  , _etdName             :: Name' EnumTypeDefinition
   , _etdDirectives       :: [Directive Void]
   , _etdValueDefinitions :: [EnumValueDefinition]
   } deriving (Ord, Show, Eq, Lift, Generic)
@@ -599,7 +605,7 @@ newtype EnumValue
 
 data InputObjectTypeDefinition = InputObjectTypeDefinition
   { _iotdDescription      :: Maybe Description
-  , _iotdName             :: Name
+  , _iotdName             :: Name' InputObjectTypeDefinition
   , _iotdDirectives       :: [Directive Void]
   , _iotdValueDefinitions :: [InputValueDefinition]
   } deriving (Ord, Show, Eq, Lift, Generic)
