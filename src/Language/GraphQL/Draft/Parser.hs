@@ -287,7 +287,7 @@ objectTypeDefinition = AST.ObjectTypeDefinition
   <*> optempty directives
   <*> fieldDefinitions
 
-interfaces :: Parser [AST.Name]
+interfaces :: Parser [AST.Name' AST.InterfaceTypeDefinition]
 interfaces = tok "implements" *> many1 nameParser
 
 fieldDefinitions :: Parser [AST.FieldDefinition]
@@ -414,7 +414,7 @@ whiteSpace = do
   AT.skipWhile isSpaceLike
   (comment *> whiteSpace) <|> pure ()
 
-nameParser :: AT.Parser AST.Name
+nameParser :: AT.Parser (AST.Name' t)
 nameParser =
   AST.unsafeMkName <$> tok ((<>) <$> AT.takeWhile1 isFirstChar
                                  <*> AT.takeWhile isNonFirstChar)
