@@ -180,7 +180,7 @@ stringValue s = mconcat [ charP '"', textP s, charP '"' ]
 listValue :: (Print var, Printer a) => [Value var] -> a
 listValue xs = mconcat [ charP '[' , li , charP ']' ]
   where
-    li = mconcat $ intersperse (charP ',') $ map value xs
+    li = mconcat $ intersperse (textP ", ") $ map value xs
 
 objectValue :: (Print var, Printer a) => HashMap Name (Value var) -> a
 objectValue o = charP '{' <> objectFields o <> charP '}'
