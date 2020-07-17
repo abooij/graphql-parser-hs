@@ -105,8 +105,8 @@ newtype Name = Name { unName :: Text }
   deriving (Eq, Ord, Show, Hashable, Lift, Semigroup, J.ToJSONKey, J.ToJSON)
 
 -- | Ref: http://facebook.github.io/graphql/June2018/#sec-Names
-mkName :: Text -> Maybe Name
-mkName text
+mkName' :: Text -> Maybe Name
+mkName' text
   | TDFA.match compiledRegex $ T.unpack text = Just (Name text)
   | otherwise                                = Nothing
   where
@@ -114,6 +114,8 @@ mkName text
 
 unsafeMkName :: Text -> Name
 unsafeMkName = Name
+
+mkName = Just . unsafeMkName
 
 parseName :: MonadFail m => Text -> m Name
 parseName text = maybe (fail errorMessage) pure $ mkName text
